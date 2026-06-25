@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Dự Đoán Khách Hàng Rời Bỏ</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-slate-50 font-sans text-gray-800">
+
+    <div class="flex h-screen overflow-hidden">
+        
+        <div class="w-64 bg-slate-900 text-white p-6 flex flex-col justify-between hidden md:flex">
+            <div>
+                <div class="flex items-center gap-3 mb-8">
+                    <i data-lucide="shield-alert" class="text-rose-500 w-8 h-8"></i>
+                    <span class="font-bold text-xl tracking-wider">Churn Analytics</span>
+                </div>
+                <nav class="space-y-2">
+                    <button onclick="switchTab('predict-tab')" id="btn-predict-tab" class="w-full flex items-center gap-3 p-3 rounded-lg bg-blue-600 font-semibold text-white transition">
+                        <i data-lucide="user-plus" class="w-5 h-5"></i> Dự đoán khách hàng
+                    </button>
+                    <button onclick="switchTab('history-tab')" id="btn-history-tab" class="w-full flex items-center gap-3 p-3 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition">
+                        <i data-lucide="layout-dashboard" class="w-5 h-5"></i> Lịch sử hệ thống
+                    </button>
+                </nav>
+            </div>
+            <div class="text-xs text-slate-500 border-t border-slate-800 pt-4">
+                Đồ án Khai thác dữ liệu - Nhóm XGBoost
+            </div>
+        </div>
+
+        <div class="flex-1 flex flex-col overflow-hidden">
+            
+            <header class="bg-white border-b border-gray-200 px-8 py-4 flex justify-between items-center z-10">
+                <div>
+                    <h1 id="page-title" class="text-2xl font-bold text-gray-900">Mô hình Dự đoán Churn</h1>
+                    <p id="page-desc" class="text-sm text-gray-500">Nhập thông tin khách hàng để mô hình XGBoost chấm điểm rủi ro</p>
+                </div>
+            </header>
+
+            <main class="flex-1 overflow-x-hidden overflow-y-auto p-8">
+                
+                <div id="predict-tab" class="tab-content space-y-6">
+                    <div class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm max-w-4xl">
+                        <h2 class="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                            <i data-lucide="edit-3" class="text-blue-500 w-5 h-5"></i> Thông số khách hàng (Tính năng Real-time)
+                        </h2>
+                        
+                        <form id="churnForm" onsubmit="submitPrediction(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Mã khách hàng</label>
+                                <input type="number" name="CustomerId" value="15634602" required class="w-full border p-2 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Họ tên (Surname)</label>
+                                <input type="text" name="Surname" value="Nguyen Van A" required class="w-full border p-2 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Tuổi (Age)</label>
+                                <input type="number" name="Age" value="42" required class="w-full border p-2 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Số dư tài khoản ($)</label>
+                                <input type="number" step="0.01" name="Balance" value="125000" required class="w-full border p-2 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Số lượng sản phẩm</label>
+                                <input type="number" name="NumOfProducts" value="1" required class="w-full border p-2 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Quốc gia</label>
+                                <select name="Geography" class="w-full border p-2 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none">
+                                    <option value="France">Pháp (France)</option>
+                                    <option value="Germany" selected>Đức (Germany)</option>
+                                    <option value="Spain">Tây Ban Nha (Spain)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Giới tính</label>
+                                <select name="Gender" class="w-full border p-2 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none">
+                                    <option value="Male">Nam</option>
+                                    <option value="Female" selected>Nữ</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Thẻ tín dụng</label>
+                                <select name="HasCrCard" class="w-full border p-2 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none">
+                                    <option value="1">Có thẻ</option>
+                                    <option value="0">Không có thẻ</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-gray-600 uppercase mb-1">Thành viên tích cực</label>
+                                <select name="IsActiveMember" class="w-full border p-2 rounded-lg focus:ring-1 focus:ring-blue-500 outline-none">
+                                    <option value="1">Tích cực</option>
+                                    <option value="0" selected>Không tích cực</option>
+                                </select>
+                            </div>
+                            <div class="md:col-span-3 pt-2">
+                                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold p-3 rounded-lg transition shadow-sm flex items-center justify-center gap-2">
+                                    <i data-lucide="cpu" class="w-5 h-5"></i> Chạy mô hình phân lớp XGBoost
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div id="resultCard" class="bg-white p-6 rounded-xl border border-gray-200 shadow-sm max-w-4xl hidden animate-pulse">
+                        <h3 class="text-md font-semibold text-gray-900 mb-3">Kết quả chấm điểm từ hệ thống</h3>
+                        <div class="flex flex-col md:flex-row gap-6 items-center">
+                            <div id="resultStatusColor" class="p-4 rounded-xl text-center w-full md:w-1/3">
+                                <span class="text-xs uppercase font-bold tracking-wider">Phân loại khách hàng</span>
+                                <div id="resultStatusText" class="text-2xl font-extrabold mt-1">--</div>
+                            </div>
+                            <div class="flex-1 w-full">
+                                <div class="flex justify-between items-center mb-2">
+                                    <span class="text-sm text-gray-500 font-medium">Xác suất nguy cơ rời bỏ:</span>
+                                    <span id="resultProbText" class="text-xl font-bold text-gray-900">0%</span>
+                                </div>
+                                <div class="w-full bg-gray-100 h-3 rounded-full overflow-hidden">
+                                    <div id="resultProgressBar" class="h-full bg-blue-500 transition-all duration-500" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="history-tab" class="tab-content space-y-4 hidden">
+                    <div class="bg-white p-4 rounded-xl border border-gray-200 flex flex-wrap gap-4 items-center justify-between shadow-sm">
+                        <div class="flex items-center gap-3 w-full md:w-96 bg-gray-50 px-3 py-2 rounded-lg border border-gray-200 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 transition">
+                            <i data-lucide="search" class="text-gray-400 w-5 h-5"></i>
+                            <input type="text" id="searchInput" oninput="applyFilters()" placeholder="Tìm kiếm theo Mã KH hoặc Tên..." class="bg-transparent w-full focus:outline-none text-sm">
+                        </div>
+                        <select id="statusFilter" onchange="applyFilters()" class="bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500">
+                            <option value="all">Tất cả trạng thái</option>
+                            <option value="Rời bỏ">Trạng thái: Rời bỏ</option>
+                            <option value="Ở lại">Trạng thái: Ở lại</option>
+                        </select>
+                    </div>
+
+                    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse">
+                                <thead>
+                                    <tr class="bg-slate-50 border-b border-gray-200 text-gray-500 text-xs font-semibold uppercase tracking-wider">
+                                        <th class="py-4 px-6">Mã KH</th>
+                                        <th class="py-4 px-6">Tên Khách Hàng</th>
+                                        <th class="py-4 px-6">Thời Gian Kiểm Tra</th>
+                                        <th class="py-4 px-6">Tuổi</th>
+                                        <th class="py-4 px-6">Số Dư Tài Khoản</th>
+                                        <th class="py-4 px-6 text-center">Xác suất Churn</th>
+                                        <th class="py-4 px-6 text-center">Kết Luận</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historyTableBody" class="divide-y divide-gray-100 text-sm text-gray-700">
+                                    </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+        let localHistoryCache = [];
+        const base_url = 'http://127.0.0.1:5000';
+
+        // Điều khiển chuyển đổi giữa các Tab chuyển hướng
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+            document.getElementById(tabId).classList.remove('hidden');
+            
+            const btnPredict = document.getElementById('btn-predict-tab');
+            const btnHistory = document.getElementById('btn-history-tab');
+            
+            if(tabId === 'predict-tab') {
+                btnPredict.className = "w-full flex items-center gap-3 p-3 rounded-lg bg-blue-600 font-semibold text-white transition";
+                btnHistory.className = "w-full flex items-center gap-3 p-3 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition";
+                document.getElementById('page-title').innerText = "Mô hình Dự đoán Churn";
+                document.getElementById('page-desc').innerText = "Nhập thông tin khách hàng để mô hình XGBoost chấm điểm rủi ro";
+            } else {
+                btnHistory.className = "w-full flex items-center gap-3 p-3 rounded-lg bg-blue-600 font-semibold text-white transition";
+                btnPredict.className = "w-full flex items-center gap-3 p-3 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition";
+                document.getElementById('page-title').innerText = "Nhật ký Hệ thống";
+                document.getElementById('page-desc').innerText = "Xem lịch sử các lượt dữ liệu đã được mô hình AI phân loại";
+                fetchHistoryFromBackend();
+            }
+        }
+
+        // HÀM GỬI DỮ LIỆU CHẠY MÔ HÌNH AI TRỰC TIẾP TỪ FORM
+        async function submitPrediction(event) {
+            event.preventDefault();
+            const formData = new FormData(event.target);
+            const jsonData = {};
+            
+            formData.forEach((value, key) => {
+                // Chuyển đổi định dạng số cho các trường cần thiết
+                if(['CustomerId', 'Age', 'NumOfProducts', 'HasCrCard', 'IsActiveMember'].includes(key)) {
+                    jsonData[key] = parseInt(value);
+                } else if (key === 'Balance') {
+                    jsonData[key] = parseFloat(value);
+                } else {
+                    jsonData[key] = value;
+                }
+            });
+
+            // Gán các giá trị phụ mặc định trùng khớp tập train để không lỗi mô hình
+            jsonData['CreditScore'] = 600;
+            jsonData['Tenure'] = 3;
+            jsonData['EstimatedSalary'] = 100000;
+            jsonData['Satisfaction Score'] = 3;
+            jsonData['Point Earned'] = 500;
+
+            try {
+                const response = await fetch(`${base_url}/api/predict`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(jsonData)
+                });
+                
+                const result = await response.json();
+                
+                // Hiển thị Card Kết Quả
+                const resultCard = document.getElementById('resultCard');
+                const statusColorBox = document.getElementById('resultStatusColor');
+                const statusText = document.getElementById('resultStatusText');
+                const probText = document.getElementById('resultProbText');
+                const progressBar = document.getElementById('resultProgressBar');
+                
+                resultCard.classList.remove('hidden');
+                resultCard.classList.remove('animate-pulse');
+                probText.innerText = `${result.probability}%`;
+                progressBar.style.width = `${result.probability}%`;
+                statusText.innerText = result.status;
+                
+                if(result.status === 'Rời bỏ') {
+                    statusColorBox.className = "p-4 rounded-xl text-center w-full md:w-1/3 bg-rose-50 text-rose-700 border border-rose-200";
+                    progressBar.className = "h-full bg-rose-500 transition-all duration-500";
+                } else {
+                    statusColorBox.className = "p-4 rounded-xl text-center w-full md:w-1/3 bg-emerald-50 text-emerald-700 border border-emerald-200";
+                    progressBar.className = "h-full bg-emerald-500 transition-all duration-500";
+                }
+            } catch (error) {
+                alert("Lỗi kết nối máy chủ AI!");
+                console.error(error);
+            }
+        }
+
+        // ĐỌC LỊCH SỬ TỪ FILE JSON QUA API GET
+        async function fetchHistoryFromBackend() {
+            const tbody = document.getElementById('historyTableBody');
+            try {
+                const response = await fetch(`${base_url}/api/history`);
+                localHistoryCache = await response.json();
+                renderTableData(localHistoryCache);
+            } catch (error) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-red-500">Lỗi nạp dữ liệu lịch sử!</td></tr>`;
+            }
+        }
+
+        function renderTableData(dataList) {
+            const tbody = document.getElementById('historyTableBody');
+            if (!dataList || dataList.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="text-center py-12 text-gray-400">Chưa có bản ghi lịch sử nào.</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = dataList.map(record => {
+                const badge = record.status === 'Rời bỏ'
+                    ? '<span class="bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 rounded-full text-xs font-bold">Rủi ro</span>'
+                    : '<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full text-xs font-bold">An toàn</span>';
+                const color = record.probability >= 50 ? 'bg-rose-500' : 'bg-emerald-500';
+
+                return `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="py-4 px-6 font-mono text-blue-600">#${record.customer_id}</td>
+                        <td class="py-4 px-6 font-semibold text-gray-900">${record.surname}</td>
+                        <td class="py-4 px-6 text-gray-500 text-xs">${record.timestamp}</td>
+                        <td class="py-4 px-6">${record.age} tuổi</td>
+                        <td class="py-4 px-6 font-medium">$${record.balance.toLocaleString()}</td>
+                        <td class="py-4 px-6">
+                            <div class="flex items-center gap-2 justify-center">
+                                <span class="font-bold text-gray-800 w-10 text-right">${record.probability}%</span>
+                                <div class="w-16 bg-gray-200 h-2 rounded-full overflow-hidden">
+                                    <div class="${color} h-full" style="width: ${record.probability}%"></div>
+                                </div>
+                            </div>
+                        </td>
+                        <td class="py-4 px-6 text-center">${badge}</td>
+                    </tr>
+                `;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        function applyFilters() {
+            const search = document.getElementById('searchInput').value.toLowerCase().trim();
+            const status = document.getElementById('statusFilter').value;
+            const res = localHistoryCache.filter(item => {
+                const mSearch = item.surname.toLowerCase().includes(search) || item.customer_id.toString().includes(search);
+                const mStatus = (status === 'all') || (item.status === status);
+                return mSearch && mStatus;
+            });
+            renderTableData(res);
+        }
+    </script>
+</body>
+</html>
