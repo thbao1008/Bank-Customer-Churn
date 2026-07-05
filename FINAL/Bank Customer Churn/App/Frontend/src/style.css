@@ -283,3 +283,82 @@ pre {
     grid-column: span 1;
   }
 }
+
+/* Table Styles */
+.table-container {
+  overflow-x: auto;
+  margin: 16px 0;
+  border-radius: 14px;
+  background: white;
+  border: 1px solid #e2e8f0;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+table thead {
+  background: #f8fafc;
+  border-bottom: 2px solid #e2e8f0;
+}
+
+table th {
+  padding: 14px;
+  text-align: left;
+  font-weight: 600;
+  color: #334155;
+}
+
+table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+table tbody tr:hover {
+  background: #f9fafb;
+}
+
+table tbody tr.highlight {
+  background: #fef3c7;
+}
+
+/* Matrix Styles */
+.matrix {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.matrix-cell {
+  padding: 14px;
+  border-radius: 12px;
+  text-align: center;
+  border: 2px solid transparent;
+}
+
+.matrix-cell.positive {
+  background: #d1fae5;
+  border-color: #10b981;
+  color: #065f46;
+}
+
+.matrix-cell.negative {
+  background: #fee2e2;
+  border-color: #ef4444;
+  color: #7f1d1d;
+}
+
+.matrix-cell span {
+  display: block;
+  font-size: 0.85rem;
+  margin-bottom: 6px;
+}
+
+.matrix-cell strong {
+  display: block;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
