@@ -14,6 +14,27 @@ type DashboardStats = {
   churn_by_geography: { country: string; churn_count: number }[]
 }
 
+type ModelMetrics = {
+  model_name: string
+  accuracy: number
+  precision: number
+  recall: number
+  f1_score: number
+}
+
+type ModelPerformance = {
+  models: ModelMetrics[]
+  best_model: string
+  roc_auc: number
+  confusion_matrix: {
+    true_positive: number
+    true_negative: number
+    false_positive: number
+    false_negative: number
+  }
+  recommendations: string[]
+}
+
 type CustomerData = {
   customer_id: number
   surname: string
@@ -72,9 +93,11 @@ const fieldLabels: Record<keyof CustomerData, string> = {
 }
 
 function App() {
-  const [view, setView] = useState<'dashboard' | 'predict' | 'bulk'>('dashboard')
+  const [view, setView] = useState<'dashboard' | 'predict' | 'bulk' | 'models'>('dashboard')
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [loadingStats, setLoadingStats] = useState(false)
+  const [modelPerformance, setModelPerformance] = useState<ModelPerformance | null>(null)
+  const [loadingModels, setLoadingModels] = useState(false)
   const [predictInput, setPredictInput] = useState<CustomerData>(initialCustomer)
   const [predictMessage, setPredictMessage] = useState<string>('')
   const [csvRows, setCsvRows] = useState<CustomerData[]>([])
@@ -95,6 +118,21 @@ function App() {
       setPredictMessage(`Lỗi lấy thống kê: ${err}`)
     } finally {
       setLoadingStats(false)
+    }
+  }
+
+  const fetchModelPerformance = async () => {
+    setLoadingModels(true)
+    try {
+      const res = await fetch('/api/models/performance')
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.message || 'Lấy kết quả mô hình thất bại')
+      setModelPerformance(json.data)
+    } catch (err) {
+      setModelPerformance(null)
+      setPredictMessage(`Lỗi lấy kết quả mô hình: ${err}`)
+    } finally {
+      setLoadingModels(false)
     }
   }
 
@@ -174,11 +212,14 @@ function App() {
         <div>
           <span className="badge">AI Analytics</span>
           <h1>Bank Customer Churn</h1>
-          <p>Giao diện React hiện đại để theo dõi và dự đoán rủi ro khách hàng</p>
+          <p>Giao diện hiện đại để theo dõi và dự đoán rủi ro khách hàng</p>
         </div>
         <nav>
           <button onClick={() => setView('dashboard')} className={view === 'dashboard' ? 'active' : ''}>
             Dashboard
+          </button>
+          <button onClick={() => setView('models')} className={view === 'models' ? 'active' : ''}>
+            Kết quả Mô hình
           </button>
           <button onClick={() => setView('predict')} className={view === 'predict' ? 'active' : ''}>
             Dự đoán đơn lẻ
@@ -252,6 +293,101 @@ function App() {
                 )}
               </div>
             </div>
+          </section>
+        )}
+
+        {view === 'models' && (
+          <section className="panel">
+            <div className="section-head">
+              <div>
+                <h2>Kết quả Huấn luyện Mô hình</h2>
+                <p>So sánh hiệu năng các mô hình Machine Learning và kết quả thực nghiệm</p>
+              </div>
+              <button onClick={fetchModelPerformance} disabled={loadingModels}>
+                {loadingModels ? 'Đang tải...' : 'Tải kết quả'}
+              </button>
+            </div>
+
+            {modelPerformance && (
+              <>
+                <div className="hero-card">
+                  <div>
+                    <span className="badge">Model Performance</span>
+                    <h3>Mô hình tốt nhất: {modelPerformance.best_model}</h3>
+                    <p>ROC-AUC Score: {modelPerformance.roc_auc?.toFixed(4) ?? '-'}</p>
+                  </div>
+                </div>
+
+                <h3 style={{ marginTop: '2rem' }}>📊 Bảng so sánh các mô hình</h3>
+                <div className="table-container">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Mô hình</th>
+                        <th>Accuracy</th>
+                        <th>Precision</th>
+                        <th>Recall</th>
+                        <th>F1-Score</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {modelPerformance.models.map((m) => (
+                        <tr key={m.model_name} className={m.model_name === modelPerformance.best_model ? 'highlight' : ''}>
+                          <td><strong>{m.model_name}</strong></td>
+                          <td>{m.accuracy?.toFixed(4)}</td>
+                          <td>{m.precision?.toFixed(4)}</td>
+                          <td>{m.recall?.toFixed(4)}</td>
+                          <td>{m.f1_score?.toFixed(4)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="card-grid">
+                  <div className="info-card">
+                    <h3>🎯 Confusion Matrix</h3>
+                    <div className="matrix">
+                      <div className="matrix-cell positive">
+                        <span>True Positive</span>
+                        <strong>{modelPerformance.confusion_matrix?.true_positive ?? '-'}</strong>
+                      </div>
+                      <div className="matrix-cell negative">
+                        <span>False Positive</span>
+                        <strong>{modelPerformance.confusion_matrix?.false_positive ?? '-'}</strong>
+                      </div>
+                      <div className="matrix-cell negative">
+                        <span>False Negative</span>
+                        <strong>{modelPerformance.confusion_matrix?.false_negative ?? '-'}</strong>
+                      </div>
+                      <div className="matrix-cell positive">
+                        <span>True Negative</span>
+                        <strong>{modelPerformance.confusion_matrix?.true_negative ?? '-'}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="info-card">
+                    <h3>💡 Khuyến nghị</h3>
+                    {modelPerformance.recommendations?.length ? (
+                      <ul>
+                        {modelPerformance.recommendations.map((rec, idx) => (
+                          <li key={idx}>{rec}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>Không có khuyến nghị</p>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {!modelPerformance && !loadingModels && (
+              <div className="hero-card">
+                <p>Nhấn "Tải kết quả" để xem hiệu năng các mô hình</p>
+              </div>
+            )}
           </section>
         )}
 
