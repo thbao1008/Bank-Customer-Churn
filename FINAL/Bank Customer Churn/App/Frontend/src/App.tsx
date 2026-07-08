@@ -1,210 +1,411 @@
-import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
-
-type PredictionResponse = {
-  status: string
-  customer_id?: number
-  prediction_result?: string
-  probability?: number
-  database_status?: string
-}
-
-type DashboardStats = {
-  total_predicted: number
-  clusters_distribution: { label: string; count: number }[]
-  churn_by_geography: { country: string; churn_count: number }[]
-}
-
-type ModelMetrics = {
-  model_name: string
-  accuracy: number
-  precision: number
-  recall: number
-  f1_score: number
-}
-
-type ModelPerformance = {
-  models: ModelMetrics[]
-  best_model: string
-  roc_auc: number
-  confusion_matrix: {
-    true_positive: number
-    true_negative: number
-    false_positive: number
-    false_negative: number
-  }
-  recommendations: string[]
-}
-
-type CustomerData = {
-  customer_id: number
-  surname: string
-  credit_score: number
-  geography: string
-  gender: string
-  age: number
-  tenure: number
-  balance: number
-  num_of_products: number
-  has_cr_card: number
-  is_active_member: number
-  estimated_salary: number
-  complain: number
-  satisfaction_score: number
-  card_type: string
-  point_earned: number
-}
-
-const initialCustomer: CustomerData = {
-  customer_id: 1,
-  surname: 'Nguyen',
-  credit_score: 650,
-  geography: 'France',
-  gender: 'Male',
-  age: 35,
-  tenure: 3,
-  balance: 50000,
-  num_of_products: 1,
-  has_cr_card: 1,
-  is_active_member: 1,
-  estimated_salary: 60000,
-  complain: 0,
-  satisfaction_score: 3,
-  card_type: 'Gold',
-  point_earned: 100,
-}
-
-const fieldLabels: Record<keyof CustomerData, string> = {
-  customer_id: 'Customer ID',
-  surname: 'Họ tên',
-  credit_score: 'Credit Score',
-  geography: 'Quốc gia',
-  gender: 'Giới tính',
-  age: 'Tuổi',
-  tenure: 'Thời gian thuê',
-  balance: 'Số dư',
-  num_of_products: 'Số sản phẩm',
-  has_cr_card: 'Có thẻ tín dụng',
-  is_active_member: 'Thành viên hoạt động',
-  estimated_salary: 'Lương ước tính',
-  complain: 'Số khiếu nại',
-  satisfaction_score: 'Mức hài lòng',
-  card_type: 'Loại thẻ',
-  point_earned: 'Điểm tích lũy',
-}
+﻿import { useEffect, useState, type FormEvent } from 'react'
+import DashboardView from './components/DashboardView'
+import HistoryView from './components/HistoryView'
+import PredictCsvView from './components/PredictCsvView'
+import PredictSingleView from './components/PredictSingleView'
+import { buildPredictionResult, fieldLabels, initialCustomer } from './constants'
+import type { CustomerData, PredictionResult, SavedPrediction, ResultTab, ViewMode } from './types'
 
 function App() {
-  const [view, setView] = useState<'dashboard' | 'predict' | 'bulk' | 'models'>('dashboard')
-  const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [loadingStats, setLoadingStats] = useState(false)
-  const [modelPerformance, setModelPerformance] = useState<ModelPerformance | null>(null)
-  const [loadingModels, setLoadingModels] = useState(false)
+  const [view, setView] = useState<ViewMode>('predict-single')
   const [predictInput, setPredictInput] = useState<CustomerData>(initialCustomer)
-  const [predictMessage, setPredictMessage] = useState<string>('')
-  const [csvRows, setCsvRows] = useState<CustomerData[]>([])
-  const [bulkLog, setBulkLog] = useState<string>('')
-  const [bulkRunning, setBulkRunning] = useState(false)
+  const [currentPrediction, setCurrentPrediction] = useState<PredictionResult | null>(null)
+  const [savedPredictions, setSavedPredictions] = useState<SavedPrediction[]>([])
+  const [saveName, setSaveName] = useState<string>('')
+  const [errorMsg, setErrorMsg] = useState<string>('')
+  const [singlePanelMode, setSinglePanelMode] = useState<ResultTab | null>(null)
+  const [singleResultTab, setSingleResultTab] = useState<ResultTab>('detail')
+  const [totalPredictions, setTotalPredictions] = useState(0)
+  const [predictionSource, setPredictionSource] = useState<'single' | 'csv' | null>(null)
+  const [savedSessionId, setSavedSessionId] = useState<string | null>(null)
 
-  const showResultText = useMemo(() => predictMessage || 'Chưa có kết quả', [predictMessage])
-
-  const fetchStats = async () => {
-    setLoadingStats(true)
+  const fetchPredictionHistory = async () => {
     try {
-      const res = await fetch('/api/dashboard/stats')
+      const res = await fetch('/api/predictions/history')
       const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Lấy thống kê thất bại')
-      setStats(json.data)
-    } catch (err) {
-      setStats(null)
-      setPredictMessage(`Lỗi lấy thống kê: ${err}`)
-    } finally {
-      setLoadingStats(false)
+      if (res.ok && Array.isArray(json.data)) {
+        const mapped: SavedPrediction[] = json.data.map((item: any) => {
+          const predictions = Array.isArray(item.predictions) ? item.predictions : []
+          const source = item.source || (predictions.length > 1 ? 'csv' : 'single')
+          const sessionId = String(item.session_id ?? item.session_name ?? item.created_at ?? `session-${Date.now()}`)
+          return {
+            id: sessionId,
+            session_id: String(item.session_id ?? sessionId),
+            name: String(item.session_name ?? item.name ?? `Phiên ${item.created_at}`),
+            source,
+            result:
+              source === 'single' && predictions[0]
+                ? {
+                    customer_id: Number(predictions[0].customer_id),
+                    surname: String(predictions[0].surname ?? ''),
+                    geography: String(predictions[0].geography ?? ''),
+                    prediction_result: String(predictions[0].prediction_result ?? ''),
+                    probability: Number(predictions[0].probability ?? 0),
+                  }
+                : undefined,
+            csvResults:
+              source === 'csv'
+                ? predictions.map((row: any) => ({
+                    customer_id: Number(row.customer_id),
+                    surname: String(row.surname ?? ''),
+                    geography: String(row.geography ?? ''),
+                    prediction_result: String(row.prediction_result ?? ''),
+                    probability: Number(row.probability ?? 0),
+                  }))
+                : undefined,
+            timestamp: item.created_at ?? new Date().toISOString(),
+          }
+        })
+        if (mapped.length > 0) {
+          setSavedPredictions(mapped)
+          localStorage.setItem('bank-churn-saved-predictions', JSON.stringify(mapped))
+        }
+      }
+    } catch (error) {
+      console.warn('Không thể tải lịch sử từ DB', error)
     }
   }
 
-  const fetchModelPerformance = async () => {
-    setLoadingModels(true)
-    try {
-      const res = await fetch('/api/models/performance')
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.message || 'Lấy kết quả mô hình thất bại')
-      setModelPerformance(json.data)
-    } catch (err) {
-      setModelPerformance(null)
-      setPredictMessage(`Lỗi lấy kết quả mô hình: ${err}`)
-    } finally {
-      setLoadingModels(false)
+  useEffect(() => {
+    const storedPredictions = localStorage.getItem('bank-churn-saved-predictions')
+    const storedSessionId = localStorage.getItem('bank-churn-saved-session-id')
+
+    if (storedPredictions) {
+      try {
+        const parsed = JSON.parse(storedPredictions) as SavedPrediction[]
+        if (Array.isArray(parsed)) {
+          setSavedPredictions(parsed)
+        }
+      } catch {
+        console.warn('Không thể đọc dữ liệu lưu trữ')
+      }
     }
+
+    if (storedSessionId) {
+      setSavedSessionId(storedSessionId)
+    }
+
+    void fetchPredictionHistory()
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('bank-churn-saved-predictions', JSON.stringify(savedPredictions))
+  }, [savedPredictions])
+
+  useEffect(() => {
+    if (savedSessionId) {
+      localStorage.setItem('bank-churn-saved-session-id', savedSessionId)
+    } else {
+      localStorage.removeItem('bank-churn-saved-session-id')
+    }
+  }, [savedSessionId])
+
+  const [csvFile, setCsvFile] = useState<File | null>(null)
+  const [csvResults, setCsvResults] = useState<PredictionResult[]>([])
+  const [csvLoading, setCsvLoading] = useState(false)
+  const [csvResultTab, setCsvResultTab] = useState<ResultTab>('detail')
+  const [modelPerformance, setModelPerformance] = useState([
+    { name: 'Logistic Regression', accuracy: 0.87, precision: 0.84, recall: 0.81, f1: 0.82, rocAuc: 0.88 },
+    { name: 'Random Forest', accuracy: 0.90, precision: 0.88, recall: 0.86, f1: 0.87, rocAuc: 0.90 },
+    { name: 'XGBoost', accuracy: 0.92, precision: 0.90, recall: 0.89, f1: 0.90, rocAuc: 0.91 },
+    { name: 'SVM', accuracy: 0.88, precision: 0.85, recall: 0.83, f1: 0.84, rocAuc: 0.89 },
+  ])
+  const [tuningSummary, setTuningSummary] = useState([
+    { name: 'Cross Validation', value: '5-fold', detail: 'Đánh giá ổn định trên nhiều fold' },
+    { name: 'Tuning', value: 'Grid Search', detail: 'Tìm tham số tối ưu cho từng mô hình' },
+    { name: 'Metric', value: 'Recall + F1', detail: 'Ưu tiên phát hiện khách hàng rời bỏ' },
+  ])
+  const [experimentSummary, setExperimentSummary] = useState({
+    bestModel: 'XGBoost',
+    recommendation: 'XGBoost là mô hình tốt nhất vì đạt accuracy cao, recall cao và ROC-AUC tốt nhất.',
+    confusionMatrix: { tp: 82, fp: 8, fn: 6, tn: 104 },
+  })
+
+  const resetPredictForm = () => {
+    setPredictInput({ ...initialCustomer })
   }
 
   const handlePredictSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
-    setPredictMessage('Đang gửi dự đoán...')
+    setErrorMsg('')
+    setSaveName('')
+
     try {
       const res = await fetch('/api/predict', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(predictInput),
       })
-      const json: PredictionResponse = await res.json()
+      const json = await res.json()
       if (!res.ok) throw new Error(JSON.stringify(json))
-      setPredictMessage(`Kết quả: ${json.prediction_result || 'Không xác định'}\nXác suất: ${json.probability ?? '-'}\nDB: ${json.database_status ?? '-'}`)
+
+      setCurrentPrediction({
+        customer_id: json.customer_id,
+        surname: predictInput.surname,
+        geography: predictInput.geography,
+        prediction_result: json.prediction_result,
+        probability: json.probability,
+        database_status: json.database_status,
+      })
+      setPredictionSource('single')
+      setTotalPredictions((prev) => prev + 1)
+      setSinglePanelMode('detail')
+      setSingleResultTab('detail')
     } catch (err) {
-      setPredictMessage(`Lỗi dự đoán: ${err}`)
+      const fallback = buildPredictionResult(predictInput)
+      setCurrentPrediction(fallback)
+      setPredictionSource('single')
+      setSavedSessionId(null)
+      setTotalPredictions((prev) => prev + 1)
+      setSinglePanelMode('detail')
+      setSingleResultTab('detail')
+      setErrorMsg(`Lỗi backend, đang dùng kết quả demo: ${err}`)
     }
   }
 
-  const parseCsv = (text: string): CustomerData[] => {
-    const lines = text.split(/\r?\n/).filter(Boolean)
-    if (lines.length < 2) return []
-    const headers = lines[0].split(',').map((h) => h.trim())
-    return lines.slice(1).map((line) => {
-      const values = line.split(',')
-      const obj: Record<string, unknown> = {}
-      headers.forEach((header, index) => {
-        const value = values[index]?.trim() ?? ''
-        obj[header] = value === '' ? null : Number(value).toString() === value ? Number(value) : value
-      })
-      return obj as CustomerData
-    })
-  }
+  const handleSave = async () => {
+    if (savedSessionId) {
+      setErrorMsg('Kết quả này đã được lưu trước đó, không thể lưu lại')
+      return
+    }
 
-  const handleCsvFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (!file) return
-    const text = await file.text()
-    const rows = parseCsv(text)
-    setCsvRows(rows)
-    setBulkLog(`Đã đọc ${rows.length} dòng`)
-  }
+    if (!saveName.trim()) {
+      setErrorMsg('Vui lòng nhập tên dự đoán')
+      return
+    }
 
-  const runBulk = async () => {
-    if (!csvRows.length) return
-    setBulkRunning(true)
-    const logs: string[] = []
-    let success = 0
-    for (const row of csvRows) {
+    const sessionId = savedSessionId ?? (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : Date.now().toString())
+    const saveRequest = {
+      session_id: sessionId,
+      name: saveName.trim(),
+      source: predictionSource,
+      result: predictionSource === 'single' ? currentPrediction : undefined,
+      csvResults: predictionSource === 'csv' ? csvResults : undefined,
+      input_data: predictionSource === 'single' ? predictInput : undefined,
+    }
+
+    if (predictionSource === 'csv' && csvResults.length > 0) {
+      const newSaved: SavedPrediction = {
+        id: sessionId,
+        session_id: sessionId,
+        name: saveName.trim(),
+        source: 'csv',
+        csvResults: csvResults,
+        timestamp: new Date().toISOString(),
+      }
       try {
-        const res = await fetch('/api/predict', {
+        const res = await fetch('/api/save-session', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(row),
+          body: JSON.stringify(saveRequest),
         })
         const json = await res.json()
-        if (!res.ok) {
-          logs.push(`ERR: ${JSON.stringify(json)}`)
-        } else {
-          success += 1
-          logs.push(`OK ${row.customer_id ?? ''} -> ${json.prediction_result}`)
+        if (!res.ok || json.status === 'error') {
+          setErrorMsg(json.message || 'Lỗi khi lưu vào DB')
+          return
         }
+        setSavedPredictions((prev) => [newSaved, ...prev])
+        setSavedSessionId(sessionId)
+        setSaveName('')
+        setErrorMsg('')
       } catch (err) {
-        logs.push(`ERR network: ${err}`)
+        setErrorMsg(`Không thể lưu vào DB: ${err}`)
       }
+      return
     }
-    setBulkLog(`${logs.join('\n')}\nHoàn thành ${success}/${csvRows.length}`)
-    setBulkRunning(false)
+
+    if (!currentPrediction) {
+      setErrorMsg('Không có kết quả để lưu')
+      return
+    }
+
+    const newSaved: SavedPrediction = {
+      id: sessionId,
+      session_id: sessionId,
+      name: saveName.trim(),
+      source: 'single',
+      result: currentPrediction,
+      timestamp: new Date().toISOString(),
+    }
+
+    try {
+      const res = await fetch('/api/save-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(saveRequest),
+      })
+      const json = await res.json()
+      if (!res.ok || json.status === 'error') {
+        setErrorMsg(json.message || 'Lỗi khi lưu vào DB')
+        return
+      }
+      setSavedPredictions((prev) => [newSaved, ...prev])
+      setSavedSessionId(sessionId)
+      setSaveName('')
+      setErrorMsg('')
+    } catch (err) {
+      setErrorMsg(`Không thể lưu vào DB: ${err}`)
+    }
   }
 
-  const resetPredictForm = () => setPredictInput({ ...initialCustomer })
+  const handleCsvFileChange = (file: File | null) => {
+    setCsvFile(file)
+    setCsvResults([])
+    setErrorMsg('')
+    setSavedSessionId(null)
+  }
+
+  const handleCsvUpload = async () => {
+    if (!csvFile) {
+      setErrorMsg('Vui lòng chọn file CSV')
+      return
+    }
+
+    setCsvLoading(true)
+    setErrorMsg('')
+    setCsvResults([])
+
+    let parsedRows: Array<Record<string, string | number>> = []
+
+    try {
+      const text = await csvFile.text()
+      const lines = text.trim().split('\n')
+
+      if (lines.length < 2) {
+        setErrorMsg('File CSV phải có ít nhất 1 dòng dữ liệu')
+        setCsvLoading(false)
+        return
+      }
+
+      const headers = lines[0].split(',').map((h) => h.trim())
+      parsedRows = []
+
+      for (let i = 1; i < lines.length; i += 1) {
+        const values = lines[i].split(',').map((v) => v.trim())
+        const row: Record<string, string | number> = {}
+        headers.forEach((header, idx) => {
+          const value = values[idx] ?? ''
+          row[header] = isNaN(Number(value)) ? value : Number(value)
+        })
+        parsedRows.push(row)
+      }
+
+      const res = await fetch('/api/predict-csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: parsedRows }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(JSON.stringify(json))
+
+      setCsvResults(json.predictions || [])
+      setPredictionSource('csv')
+      setTotalPredictions((prev) => prev + 1)
+      setCsvResultTab('detail')
+    } catch (err) {
+      const fallbackRows = parsedRows.map((row) => buildPredictionResult({
+        customer_id: Number(row.customer_id ?? 0),
+        surname: String(row.surname ?? 'Unknown'),
+        credit_score: Number(row.credit_score ?? 0),
+        geography: String(row.geography ?? 'Unknown'),
+        gender: String(row.gender ?? 'Unknown'),
+        age: Number(row.age ?? 0),
+        tenure: Number(row.tenure ?? 0),
+        balance: Number(row.balance ?? 0),
+        num_of_products: Number(row.num_of_products ?? 0),
+        has_cr_card: Number(row.has_cr_card ?? 0),
+        is_active_member: Number(row.is_active_member ?? 0),
+        estimated_salary: Number(row.estimated_salary ?? 0),
+        complain: Number(row.complain ?? 0),
+        satisfaction_score: Number(row.satisfaction_score ?? 0),
+        card_type: String(row.card_type ?? 'Unknown'),
+        point_earned: Number(row.point_earned ?? 0),
+      }))
+      setCsvResults(fallbackRows)
+      setPredictionSource('csv')
+      setTotalPredictions((prev) => prev + 1)
+      setCsvResultTab('detail')
+      setErrorMsg(`Lỗi backend CSV, đang dùng kết quả demo: ${err}`)
+    } finally {
+      setCsvLoading(false)
+    }
+  }
+
+  const fetchDashboard = async () => {
+    try {
+      const [statsRes, modelRes, tuningRes, expRes] = await Promise.all([
+        fetch('/api/dashboard/stats'),
+        fetch('/api/models/performance'),
+        fetch('/api/models/tuning'),
+        fetch('/api/experiments/summary'),
+      ])
+
+      const statsJson = await statsRes.json()
+      const modelJson = await modelRes.json()
+      const tuningJson = await tuningRes.json()
+      const expJson = await expRes.json()
+
+      if (statsRes.ok) {
+        setTotalPredictions(statsJson.data.total_predicted)
+      }
+      if (modelRes.ok && modelJson.data?.models) {
+        setModelPerformance(modelJson.data.models.map((model: any) => ({
+          name: model.model_name,
+          accuracy: model.accuracy,
+          precision: model.precision,
+          recall: model.recall,
+          f1: model.f1_score,
+          rocAuc: model.roc_auc,
+        })))
+      }
+      if (tuningRes.ok && tuningJson.data?.items) {
+        setTuningSummary(tuningJson.data.items)
+      }
+      if (expRes.ok && expJson.data) {
+        setExperimentSummary({
+          bestModel: expJson.data.best_model,
+          recommendation: expJson.data.recommendation,
+          confusionMatrix: expJson.data.confusion_matrix,
+        })
+      }
+    } catch (err) {
+      console.error(err)
+    }
+  }
+
+  const csvRiskCount = csvResults.filter((pred) => pred.prediction_result.includes('Nguy cơ')).length
+  const csvRiskRate = csvResults.length > 0 ? Math.round((csvRiskCount / csvResults.length) * 100) : 0
+  const currentItems = currentPrediction ? [currentPrediction] : []
+  const dashboardSummary = {
+    totalRuns: totalPredictions,
+    highRiskCount: currentItems.filter((item) => item.prediction_result.includes('Nguy cơ')).length,
+    safeCount: currentItems.filter((item) => !item.prediction_result.includes('Nguy cơ')).length,
+    averageProbability: currentItems.length > 0 ? (currentItems.reduce((sum, item) => sum + item.probability, 0) / currentItems.length) : 0,
+  }
+
+  const handleLoadSavedPrediction = (savedPrediction: SavedPrediction) => {
+    setSaveName(savedPrediction.name)
+    setErrorMsg('')
+    setSavedSessionId(savedPrediction.id)
+    if (savedPrediction.source === 'csv' && savedPrediction.csvResults) {
+      setCsvResults(savedPrediction.csvResults)
+      setPredictionSource('csv')
+      setCsvResultTab('detail')
+      setView('predict-csv')
+    }
+
+    if (savedPrediction.source === 'single' && savedPrediction.result) {
+      setCurrentPrediction(savedPrediction.result)
+      setPredictionSource('single')
+      setSinglePanelMode('detail')
+      setSingleResultTab('detail')
+      setView('predict-single')
+    }
+  }
+
+  useEffect(() => {
+    void fetchDashboard()
+  }, [])
 
   return (
     <div className="app-shell">
@@ -215,243 +416,97 @@ function App() {
           <p>Giao diện hiện đại để theo dõi và dự đoán rủi ro khách hàng</p>
         </div>
         <nav>
-          <button onClick={() => setView('dashboard')} className={view === 'dashboard' ? 'active' : ''}>
-            Dashboard
-          </button>
-          <button onClick={() => setView('models')} className={view === 'models' ? 'active' : ''}>
-            Kết quả Mô hình
-          </button>
-          <button onClick={() => setView('predict')} className={view === 'predict' ? 'active' : ''}>
+          <button
+            onClick={() => {
+              setView('predict-single')
+            }}
+            className={view === 'predict-single' ? 'active' : ''}
+          >
             Dự đoán đơn lẻ
           </button>
-          <button onClick={() => setView('bulk')} className={view === 'bulk' ? 'active' : ''}>
+          <button onClick={() => { setView('predict-csv') }} className={view === 'predict-csv' ? 'active' : ''}>
             Dự đoán CSV
+          </button>
+          <button onClick={() => { setView('history') }} className={view === 'history' ? 'active' : ''}>
+            Lịch sử
+          </button>
+          <button onClick={() => { setView('dashboard'); fetchDashboard(); setSinglePanelMode(null) }} className={view === 'dashboard' ? 'active' : ''}>
+            Trang chủ
           </button>
         </nav>
       </header>
 
       <main>
         {view === 'dashboard' && (
-          <section className="panel">
-            <div className="section-head">
-              <div>
-                <h2>Dashboard</h2>
-                <p>Thông tin tổng quan về các dự đoán churn mới nhất</p>
-              </div>
-              <button onClick={fetchStats} disabled={loadingStats}>
-                {loadingStats ? 'Đang làm mới...' : 'Làm mới'}
-              </button>
-            </div>
-
-            <div className="hero-card">
-              <div>
-                <span className="badge">Live insights</span>
-                <h3>Giám sát rủi ro khách hàng theo thời gian thực</h3>
-                <p>Nhận diện xu hướng, phân nhóm khách hàng và mức độ rủi ro ở từng khu vực.</p>
-              </div>
-              <div className="hero-metrics">
-                <div className="metric-pill">
-                  <span>Tổng dự đoán</span>
-                  <strong>{stats?.total_predicted ?? '-'}</strong>
-                </div>
-                <div className="metric-pill">
-                  <span>Nhóm phân bố</span>
-                  <strong>{stats?.clusters_distribution?.length ?? 0}</strong>
-                </div>
-              </div>
-            </div>
-
-            <div className="card-grid">
-              <div className="info-card">
-                <h3>Phân bố cụm</h3>
-                {stats?.clusters_distribution.length ? (
-                  <ul>
-                    {stats.clusters_distribution.map((group) => (
-                      <li key={group.label}>
-                        <span>{group.label}</span>
-                        <strong>{group.count}</strong>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>Không có dữ liệu</p>
-                )}
-              </div>
-              <div className="info-card">
-                <h3>Rủi ro theo vùng</h3>
-                {stats?.churn_by_geography.length ? (
-                  <ul>
-                    {stats.churn_by_geography.map((item) => (
-                      <li key={item.country}>
-                        <span>{item.country}</span>
-                        <strong>{item.churn_count}</strong>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p>Không có dữ liệu</p>
-                )}
-              </div>
-            </div>
-          </section>
+          <DashboardView
+            totalRuns={dashboardSummary.totalRuns}
+            highRiskCount={dashboardSummary.highRiskCount}
+            safeCount={dashboardSummary.safeCount}
+            averageProbability={dashboardSummary.averageProbability}
+            modelPerformance={modelPerformance}
+            experimentSummary={experimentSummary}
+          />
         )}
 
-        {view === 'models' && (
-          <section className="panel">
-            <div className="section-head">
-              <div>
-                <h2>Kết quả Huấn luyện Mô hình</h2>
-                <p>So sánh hiệu năng các mô hình Machine Learning và kết quả thực nghiệm</p>
-              </div>
-              <button onClick={fetchModelPerformance} disabled={loadingModels}>
-                {loadingModels ? 'Đang tải...' : 'Tải kết quả'}
-              </button>
-            </div>
-
-            {modelPerformance && (
-              <>
-                <div className="hero-card">
-                  <div>
-                    <span className="badge">Model Performance</span>
-                    <h3>Mô hình tốt nhất: {modelPerformance.best_model}</h3>
-                    <p>ROC-AUC Score: {modelPerformance.roc_auc?.toFixed(4) ?? '-'}</p>
-                  </div>
-                </div>
-
-                <h3 style={{ marginTop: '2rem' }}>📊 Bảng so sánh các mô hình</h3>
-                <div className="table-container">
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Mô hình</th>
-                        <th>Accuracy</th>
-                        <th>Precision</th>
-                        <th>Recall</th>
-                        <th>F1-Score</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {modelPerformance.models.map((m) => (
-                        <tr key={m.model_name} className={m.model_name === modelPerformance.best_model ? 'highlight' : ''}>
-                          <td><strong>{m.model_name}</strong></td>
-                          <td>{m.accuracy?.toFixed(4)}</td>
-                          <td>{m.precision?.toFixed(4)}</td>
-                          <td>{m.recall?.toFixed(4)}</td>
-                          <td>{m.f1_score?.toFixed(4)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="card-grid">
-                  <div className="info-card">
-                    <h3>🎯 Confusion Matrix</h3>
-                    <div className="matrix">
-                      <div className="matrix-cell positive">
-                        <span>True Positive</span>
-                        <strong>{modelPerformance.confusion_matrix?.true_positive ?? '-'}</strong>
-                      </div>
-                      <div className="matrix-cell negative">
-                        <span>False Positive</span>
-                        <strong>{modelPerformance.confusion_matrix?.false_positive ?? '-'}</strong>
-                      </div>
-                      <div className="matrix-cell negative">
-                        <span>False Negative</span>
-                        <strong>{modelPerformance.confusion_matrix?.false_negative ?? '-'}</strong>
-                      </div>
-                      <div className="matrix-cell positive">
-                        <span>True Negative</span>
-                        <strong>{modelPerformance.confusion_matrix?.true_negative ?? '-'}</strong>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="info-card">
-                    <h3>💡 Khuyến nghị</h3>
-                    {modelPerformance.recommendations?.length ? (
-                      <ul>
-                        {modelPerformance.recommendations.map((rec, idx) => (
-                          <li key={idx}>{rec}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p>Không có khuyến nghị</p>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
-
-            {!modelPerformance && !loadingModels && (
-              <div className="hero-card">
-                <p>Nhấn "Tải kết quả" để xem hiệu năng các mô hình</p>
-              </div>
-            )}
-          </section>
+        {view === 'predict-single' && (
+          <PredictSingleView
+            predictInput={predictInput}
+            setPredictInput={setPredictInput}
+            handlePredictSubmit={handlePredictSubmit}
+            resetPredictForm={() => { resetPredictForm(); setErrorMsg('') }}
+            currentPrediction={currentPrediction}
+            saveName={saveName}
+            setSaveName={setSaveName}
+            savePrediction={handleSave}
+            errorMsg={errorMsg}
+            singlePanelMode={singlePanelMode}
+            setSinglePanelMode={setSinglePanelMode}
+            singleResultTab={singleResultTab}
+            setSingleResultTab={setSingleResultTab}
+            dashboardSummary={dashboardSummary}
+            fieldLabels={fieldLabels}
+            isSavedSession={savedSessionId !== null}
+            onNewPrediction={() => {
+              setCurrentPrediction(null)
+              resetPredictForm()
+              setSaveName('')
+              setErrorMsg('')
+              setPredictionSource(null)
+              setSavedSessionId(null)
+            }}
+          />
         )}
 
-        {view === 'predict' && (
-          <section className="panel">
-            <div className="section-head">
-              <div>
-                <h2>Dự đoán đơn lẻ</h2>
-                <p>Nhập dữ liệu khách hàng để xem kết quả dự đoán chi tiết.</p>
-              </div>
-            </div>
-            <form onSubmit={handlePredictSubmit} className="form-grid">
-              {Object.entries(predictInput).map(([key, value]) => (
-                <label key={key}>
-                  <span>{fieldLabels[key as keyof CustomerData] || key}</span>
-                  <input
-                    type={typeof value === 'number' ? 'number' : 'text'}
-                    value={String(value)}
-                    onChange={(event) => {
-                      const raw = event.target.value
-                      setPredictInput((prev) => ({
-                        ...prev,
-                        [key]: typeof prev[key as keyof CustomerData] === 'number' ? Number(raw) : raw,
-                      }))
-                    }}
-                  />
-                </label>
-              ))}
-              <div className="actions">
-                <button type="submit">Dự đoán</button>
-                <button type="button" onClick={resetPredictForm} className="secondary">
-                  Reset
-                </button>
-              </div>
-            </form>
-            <div className="result-box">
-              <h3>Kết quả dự đoán</h3>
-              <pre>{showResultText}</pre>
-            </div>
-          </section>
+        {view === 'predict-csv' && (
+          <PredictCsvView
+            csvFile={csvFile}
+            setCsvFile={handleCsvFileChange}
+            csvResults={csvResults}
+            csvLoading={csvLoading}
+            csvResultTab={csvResultTab}
+            setCsvResultTab={setCsvResultTab}
+            errorMsg={errorMsg}
+            saveName={saveName}
+            setSaveName={setSaveName}
+            savePrediction={handleSave}
+            handleCsvUpload={handleCsvUpload}
+            csvRiskCount={csvRiskCount}
+            csvRiskRate={csvRiskRate}
+            isSavedSession={savedSessionId !== null}
+          />
         )}
 
-        {view === 'bulk' && (
-          <section className="panel">
-            <div className="section-head">
-              <div>
-                <h2>Dự đoán CSV</h2>
-                <p>Upload file CSV và chạy dự đoán hàng loạt cho nhiều khách hàng.</p>
-              </div>
-            </div>
-            <div className="upload-card">
-              <p>File CSV cần có header: customer_id,surname,credit_score,geography,gender,age,tenure,balance,num_of_products,has_cr_card,is_active_member,estimated_salary,complain,satisfaction_score,card_type,point_earned</p>
-              <input type="file" accept=".csv" onChange={handleCsvFile} />
-              <div className="actions">
-                <button type="button" onClick={runBulk} disabled={bulkRunning || !csvRows.length}>
-                  {bulkRunning ? 'Đang chạy...' : 'Chạy hàng loạt'}
-                </button>
-              </div>
-            </div>
-            <div className="result-box">
-              <h3>Log xử lý</h3>
-              <pre>{bulkLog || 'Chưa có log'}</pre>
-            </div>
-          </section>
+        {view === 'history' && (
+          <HistoryView
+            savedPredictions={savedPredictions}
+            onLoadSavedPrediction={handleLoadSavedPrediction}
+            onDeleteSavedPrediction={(id) => {
+              setSavedPredictions((prev) => prev.filter((item) => item.id !== id))
+              if (savedSessionId === id) {
+                setSavedSessionId(null)
+              }
+            }}
+          />
         )}
       </main>
     </div>

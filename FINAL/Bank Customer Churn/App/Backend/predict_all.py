@@ -1,17 +1,23 @@
 import pandas as pd
-import pyodbc
+import psycopg
 import joblib
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
-server = os.getenv("DB_SERVER")
+server = os.getenv("DB_HOST") or os.getenv("DB_SERVER", "localhost")
+port = os.getenv("DB_PORT", "5432")
 database = os.getenv("DB_NAME")
 username = os.getenv("DB_USER")
 password = os.getenv("DB_PASSWORD")
 
-conn_str = f"DRIVER={{ODBC Driver 17 for SQL Server}};SERVER={server};DATABASE={database};UID={username};PWD={password}"
-conn = pyodbc.connect(conn_str)
+conn = psycopg.connect(
+    dbname=database,
+    user=username,
+    password=password,
+    host=server,
+    port=port,
+)
 
 
 print("Đang nạp AI...")
@@ -23,7 +29,7 @@ threshold = joblib.load('../../MODELS/optimal_threshold.pkl')
 # ==========================
 # 3. Đọc dữ liệu SQL
 # ==========================
-print("Đang đọc dữ liệu từ SQL Server...")
+print("Đang đọc dữ liệu từ PostgreSQL...")
 df = pd.read_sql("SELECT * FROM customers", conn)
 
 if df.empty:
@@ -86,7 +92,7 @@ print(f"Khách hàng trung thành: {len(predictions) - predictions.sum()}")
 # ==========================
 # 7. Cập nhật Database
 # ==========================
-print("\nĐang lưu kết quả chuẩn xác xuống SQL Server...")
+print("\nĐang lưu kết quả chuẩn xác xuống PostgreSQL...")
 cursor = conn.cursor()
 
 for i in range(len(customer_ids)):
